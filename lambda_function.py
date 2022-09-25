@@ -1,8 +1,43 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
+from boto3.dynamodb.conditions import Key
 import time
 import math
+import boto3
+
+dynamo_db = boto3.resource('dynamodb')
+saved_cart_item_table = dynamo_db.Table("saved_cart_item")
+
+#テーブルスキャン
+def table_scan():
+    scan_data = saved_cart_item_table.scan()
+    data_items=scan_data['Items']
+    #print(data_items)
+    #return data_items
+
+#項目検索
+def get_data_price(partitionKey):
+    query_data = saved_cart_item_table.get_item(Key={'asin_code':partitionKey})
+    if 'Item' in query_data:
+        item = query_data['Item']
+        return item['price']
+    return
+
+#項目追加
+def add_record(partitionKey, price):
+    add_response = saved_cart_item_table.put_item(
+        Item={
+            'asin_code': partitionKey,
+            'price': price
+        }
+    )
+
+    if add_response['ResponseMetadata']['HTTPStatusCode'] != 200:
+        #エラーレスポンスの表示
+        print(add_response)
+    else:
+        print('PUT Successed.')
 
 def lambda_handler(event, context):
     options = Options()
@@ -45,6 +80,8 @@ def lambda_handler(event, context):
 
     saved_cart_items = browser.find_elements_by_css_selector('.a-row.sc-list-item.sc-java-remote-feature')
 
+    table_scan()
+
     for saved_cart_item in saved_cart_items:
         saved_cart_item_asin = saved_cart_item.get_attribute('data-asin')
         #Todo:Amazon側では価格情報を小数第一を含めて表示しているが一旦、切り捨てして整数で値を取得している（少数第一が0以外のデータが存在するかもしれない
@@ -52,5 +89,11 @@ def lambda_handler(event, context):
 
         #在庫切れ商品や出品者が取り下げた商品については価格情報が0円で取得されているためそういった商品は取り扱わない
         if saved_cart_item_price != 0:
-            #dynamoDBの処理記述
-            print('test')
+            data_price = get_data_price(saved_cart_item_asin)
+            if not data_price:
+                add_record(saved_cart_item_asin, saved_cart_item_price)
+            else:
+                print('Slackに通知')
+                # data_price_80_off = data_price * (80/100)
+                # if(data_price_80_off >= saved_cart_item_price):
+                #     print('Slackに通知')
