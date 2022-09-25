@@ -1,0 +1,2 @@
+# PriceLowerNotification
+Amazonの商品で特定の値段以下になった場合にSlackへ通知を出すシステム
