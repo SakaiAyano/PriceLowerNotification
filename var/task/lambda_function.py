@@ -8,6 +8,8 @@ import boto3
 import urllib3
 import json
 import os
+from decimal import Decimal
+
 http = urllib3.PoolManager()
 
 dynamo_db = boto3.resource('dynamodb')
@@ -57,6 +59,7 @@ def delete_recode(partitionKey):
         print(delete_response)
     else:
         print('DEL Successed.')
+
 
 #Slackへの通知処理
 def price_lower_notification(lower_cart_item_names):
@@ -116,10 +119,11 @@ def lambda_handler(event, context):
 
     next_button = browser.find_element_by_id('signInSubmit')
     next_button.click()
-    time.sleep(1)
+    time.sleep(20)
 
     #Todo:Amazon側ではログイン時にセキュリティメールを送信することがある。登録したメール側から承認する作業を行う必要がある
     #※新しく別ドライブを立ち上げてGmailに自動ログインするのはGoogleの仕様上、現在不可能
+    #Gmailアプリを使用して自動承認機能を追加したい
 
     cart_button = browser.find_element_by_id('nav-cart')
     cart_button.click()
@@ -144,21 +148,22 @@ def lambda_handler(event, context):
         saved_cart_item_price = math.floor(float(saved_cart_item.get_attribute('data-price')))
         saved_cart_item_name = saved_cart_item_names[i].get_attribute("innerHTML")
 
-
         #在庫切れ商品や出品者が取り下げた商品については価格情報が0円で取得されているためそういった商品は取り扱わない
         if saved_cart_item_price != 0:
             data_price = get_data_price(saved_cart_item_asin_code)
             if not data_price:
                 add_record(saved_cart_item_asin_code, saved_cart_item_price)
             else:
-                # data_price_20_off = data_price * (80/100)
-                # if(data_price_80_off >= saved_cart_item_price):
-                #     lower_cart_item_names.append(saved_cart_item_name)
+                data_price_20_off = data_price * Decimal(80/100)
+                if(data_price_20_off >= saved_cart_item_price):
+                    lower_cart_item_names.append(saved_cart_item_name)
 
         saved_cart_item_asin_codes.append(saved_cart_item_asin_code)
         i+=1
 
-    price_lower_notification(lower_cart_item_names)
+
+    if len(lower_cart_item_names) != 0:
+        price_lower_notification(lower_cart_item_names)
 
     data_items = table_scan()
     data_asin_codes = []
@@ -174,4 +179,4 @@ def lambda_handler(event, context):
             delete_recode(deleted_saved_cart_asin_code)
 
 
-    drowser.quit()
+    browser.quit()
