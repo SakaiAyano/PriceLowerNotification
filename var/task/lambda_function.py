@@ -12,6 +12,7 @@ from decimal import Decimal
 dynamo_db = boto3.resource('dynamodb')
 saved_cart_item_table = dynamo_db.Table('saved_cart_item')
 
+
 # テーブルスキャン
 def table_scan():
     scan_data = saved_cart_item_table.scan()
@@ -32,7 +33,7 @@ def get_data_price(asin_code):
 
 # 項目追加
 def add_record(asin_code, price):
-    add_response = saved_cart_item_table.put_item(
+    saved_cart_item_table.put_item(
         Item={
             'asin_code': asin_code,
             'price': price
@@ -52,13 +53,13 @@ def price_lower_notification(price_lower_items):
     http = urllib3.PoolManager()
     slack_url = os.environ['SLACK_URL']
     items_list = ''
-    for lower_cart_item_name in price_lower_items:
-        items_list += '★' + lower_cart_item_name + '\n'
+    for lower_item_name in price_lower_items:
+        items_list += '★' + lower_item_name + '\n'
 
     msg = {
         'attachments': [
             {
-                'fallback': 'Amazonからのお知らせ',
+                'fallback': 'Amazon商品の値下げお知らせ',
                 'pretext': '<@JhonLenon>',
                 'link_names': 1,
                 'color': '#D00000',
@@ -90,7 +91,7 @@ def lambda_handler(event, context):
     browser = webdriver.Chrome('/opt/headless/python/bin/chromedriver', options=options)
     browser.implicitly_wait(10)
 
-    #Amazonのログイン画面
+    # Amazonのログイン画面
     browser.get('https://qr.paps.jp/t6xn7')
     email_elem = browser.find_element_by_id('ap_email')
     email_elem.send_keys(os.environ['AMAZON_ID'])
