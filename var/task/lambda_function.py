@@ -15,6 +15,7 @@ saved_cart_item_table = dynamo_db.Table('saved_cart_item')
 amazon_id = os.environ['AMAZON_ID']
 amazon_password = os.environ['AMAZON_PASSWORD']
 slack_url = os.environ['SLACK_URL']
+slack_user_id = os.environ['SLACK_USER_ID']
 
 
 # テーブルスキャン
@@ -23,7 +24,6 @@ def table_scan():
     if 'Items' in scan_data:
         data_items = scan_data['Items']
         return data_items
-    return
 
 
 # 項目検索
@@ -54,15 +54,16 @@ def delete_recodes(deleted_saved_cart_asin_codes):
 def price_lower_notification(price_lower_items):
     http = urllib3.PoolManager()
     items_list = ''
-    for lower_item_name in price_lower_items:
-        items_list += '★' + lower_item_name + '\n'
+    for price_lower_item_name in price_lower_items:
+        items_list += '★' + price_lower_item_name['item_name'] + '  ' \
+                           + str(price_lower_item_name['data_price']) + '円→' \
+                           + str(price_lower_item_name['price']) + '円\n '
 
     msg = {
         'attachments': [
             {
                 'fallback': 'Amazon商品の値下げお知らせ',
-                'pretext': '<@JhonLenon>',
-                'link_names': 1,
+                'pretext': '<@' + slack_user_id + '>',
                 'color': '#D00000',
                 'fields': [
                     {
@@ -136,7 +137,8 @@ def lambda_handler(event, context):
             else:
                 data_price_20_off = data_price * Decimal(80 / 100)
                 if data_price_20_off >= price:
-                    price_lower_items.append(item_name)
+                    price_lower_items.append({'item_name': item_name, 'data_price': data_price, 'price': price})
+                add_record(asin_code, price)
 
         asin_codes.append(asin_code)
 
