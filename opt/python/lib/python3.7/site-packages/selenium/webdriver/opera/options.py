@@ -20,12 +20,22 @@ from selenium.webdriver.common.desired_capabilities import DesiredCapabilities
 
 
 class Options(ChromeOptions):
+    KEY = "operaOptions"
 
     def __init__(self):
         ChromeOptions.__init__(self)
         self._android_package_name = ''
         self._android_device_socket = ''
         self._android_command_line_file = ''
+        self._caps = DesiredCapabilities.OPERA.copy()
+
+    @property
+    def capabilities(self):
+        return self._caps
+
+    def set_capability(self, name, value):
+        """Sets a capability."""
+        self._caps[name] = value
 
     @property
     def android_package_name(self):
@@ -85,9 +95,8 @@ class Options(ChromeOptions):
             returns a dictionary with everything
         """
         capabilities = ChromeOptions.to_capabilities(self)
-        capabilities.update(DesiredCapabilities.OPERA)
-        opera_options = capabilities["operaOptions"] = \
-            capabilities.pop("chromeOptions")
+        capabilities.update(self._caps)
+        opera_options = capabilities[self.KEY]
 
         if self.android_package_name:
             opera_options["androidPackage"] = self.android_package_name
