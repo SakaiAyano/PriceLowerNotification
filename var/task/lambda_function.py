@@ -8,14 +8,39 @@ import urllib3
 import json
 import os
 from decimal import Decimal
+import pickle
+import os.path
+from google.auth.transport.requests import Request
+from googleapiclient.discovery import build
+from google_auth_oauthlib.flow import InstalledAppFlow
 
 dynamo_db = boto3.resource('dynamodb')
 saved_cart_item_table = dynamo_db.Table('saved_cart_item')
+scope = ['https://www.googleapis.com/auth/gmail.readonly']
 
 amazon_id = os.environ['AMAZON_ID']
 amazon_password = os.environ['AMAZON_PASSWORD']
 slack_url = os.environ['SLACK_URL']
 slack_user_id = os.environ['SLACK_USER_ID']
+
+
+# gmailAPI OAuth2認証機能
+def google_get_auth():
+    creds = None
+    if os.path.exists('/tmp/token.pickle'):
+        with open('/tmp/token.pickle', 'rb') as token:
+            creds = pickle.load(token)
+    if not creds or not creds.valid:
+        if creds and creds.expired and creds.refresh_token:
+            creds.refresh(Request())
+        else:
+            flow = InstalledAppFlow.from_client_secrets_file('credentials.json', scope)
+            creds = flow.run_local_server()
+        # Todo:「Please visit this URL to authorize this application:
+        #  https://accounts.google.com/o/oauth2/・・」で手動で認可する必要あり →完全な自動化は不可能と思われる、、
+        with open('/tmp/token.pickle', 'wb') as token:
+            pickle.dump(creds, token)
+    return build('gmail', 'v1', credentials=creds)
 
 
 # テーブルスキャン
@@ -56,8 +81,8 @@ def price_lower_notification(price_lower_items):
     items_list = ''
     for price_lower_item_name in price_lower_items:
         items_list += '★' + price_lower_item_name['item_name'] + '  ' \
-                           + str(price_lower_item_name['data_price']) + '円→' \
-                           + str(price_lower_item_name['price']) + '円\n '
+                      + str(price_lower_item_name['data_price']) + '円→' \
+                      + str(price_lower_item_name['price']) + '円\n '
 
     msg = {
         'attachments': [
@@ -105,8 +130,9 @@ def lambda_handler(event, context):
     time.sleep(20)
 
     # TODO:Amazon側ではログイン時にセキュリティメールを送信することがある。登録したメール側から承認する作業を行う必要がある
-    # ※新しく別ドライブを立ち上げてGmailに自動ログインするのはGoogleの仕様上、現在不可能
-    # GmailAPIを使用して自動承認機能を追加したい
+    # ※新しく別ドライブを立ち上げてGmailに自動ログインするのはGoogleセキュリティ上、現在不可能
+    # Oauth2よりGmailAPIを使用したいが手動で作業が必要となり、下記google_get_auth関数は自動で動作しない
+    google_get_auth()
 
     cart_button = browser.find_element_by_id('nav-cart')
     cart_button.click()
