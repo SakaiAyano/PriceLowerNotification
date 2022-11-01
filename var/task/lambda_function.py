@@ -96,6 +96,7 @@ def lambda_handler(event, context):
         price_lower_items = []
 
         # 画面描画のため（「ほしいものリスト」全ての商品情報）を取得するため画面下までスクロール
+        #TODO:time.sleepの場合、待っている時間がもったいない＋全て値がとれるとは限らないため安定して稼働するために別の方法を考える必要あり
         html = browser.find_element_by_tag_name('html')
         html.send_keys(Keys.END)
         time.sleep(5)
