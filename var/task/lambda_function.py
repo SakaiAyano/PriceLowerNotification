@@ -1,5 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
+from selenium.webdriver.common.keys import Keys
 import time
 import math
 import boto3
@@ -10,11 +11,12 @@ from decimal import Decimal
 import re
 
 dynamo_db = boto3.resource('dynamodb')
-wish_list_table = dynamo_db.Table('wish_list')
+wish_list_table = dynamo_db.Table('wish_list_item')
 
 slack_url = os.environ['SLACK_URL']
 slack_user_id = os.environ['SLACK_USER_ID']
 wish_list_url = os.environ['WISH_LIST_URL']
+
 
 # テーブルスキャン
 def table_scan():
@@ -85,51 +87,61 @@ def lambda_handler(event, context):
     options.binary_location = '/opt/headless/python/bin/headless-chromium'
     browser = webdriver.Chrome('/opt/headless/python/bin/chromedriver', options=options)
     browser.implicitly_wait(10)
+    try:
+        # 対象のほしいものリストへアクセス
+        browser.get(wish_list_url)
+        time.sleep(1)
 
-    # 対象のほしいものリストへアクセス
-    browser.get(wish_list_url)
-    time.sleep(1)
+        asin_codes = []
+        price_lower_items = []
 
-    asin_codes = []
-    price_lower_items = []
+        # 画面描画のため（「ほしいものリスト」全ての商品情報）を取得するため画面下までスクロール
+        html = browser.find_element_by_tag_name('html')
+        html.send_keys(Keys.END)
+        time.sleep(5)
 
-    list_items = browser.find_elements_by_css_selector('.a-spacing-none.g-item-sortable')
-    for list_item in list_items:
-        # TODO:Amazon側では価格情報を小数第一を含めて表示しているが、小数第一を切り捨て対応（小数第一が0以外の商品が存在する可能性もあり得る？）
-        price = math.floor(float(list_item.get_attribute('data-price')))
-        data_reposition_action_params = list_item.get_attribute('data-reposition-action-params')
-        data_reposition_action_params_dict = json.loads(data_reposition_action_params)
-        asin_code = (re.search(r'ASIN:(.*)\|', data_reposition_action_params_dict['itemExternalId'])).group(1)
+        list_items = browser.find_elements_by_css_selector('.a-spacing-none.g-item-sortable')
+        for list_item in list_items:
+            # TODO:Amazon側では価格情報を小数第一を含めて表示しているが、小数第一を切り捨て対応（小数第一が0以外の商品が存在する可能性もあり得る？）
+            price = math.floor(float(list_item.get_attribute('data-price')))
+            data_reposition_action_params = list_item.get_attribute('data-reposition-action-params')
+            data_reposition_action_params_dict = json.loads(data_reposition_action_params)
+            asin_code = (re.search(r'ASIN:(.*)\|', data_reposition_action_params_dict['itemExternalId'])).group(1)
 
-        item_id = list_item.get_attribute('data-itemId')
-        item_name = browser.find_element_by_id('itemName_' + item_id).get_attribute('title')
+            item_id = list_item.get_attribute('data-itemId')
+            item_name = browser.find_element_by_id('itemName_' + item_id).get_attribute('title')
 
-        # 在庫切れ商品や出品者が取り下げた商品については価格情報が0円で取得されているためそういった商品は取り扱わない
-        if price != 0:
-            data_price = get_data_price(asin_code)
-            if not data_price:
-                add_record(asin_code, price)
-            else:
-                data_price_20_off = data_price * Decimal(80 / 100)
-                if data_price_20_off >= price:
-                    price_lower_items.append({'item_name': item_name, 'data_price': data_price, 'price': price})
-                add_record(asin_code, price)
+            # 在庫切れ商品や出品者が取り下げた商品については価格情報が0円で取得されているためそういった商品は取り扱わない
+            if price != 0:
+                data_price = get_data_price(asin_code)
+                if not data_price:
+                    add_record(asin_code, price)
+                else:
+                    data_price_20_off = data_price * Decimal(80 / 100)
+                    if data_price_20_off >= price:
+                        price_lower_items.append({'item_name': item_name, 'data_price': data_price, 'price': price})
+                    add_record(asin_code, price)
 
-        asin_codes.append(asin_code)
+            asin_codes.append(asin_code)
 
-    if len(price_lower_items) != 0:
-        price_lower_notification(price_lower_items)
+        if len(price_lower_items) != 0:
+            price_lower_notification(price_lower_items)
 
-    data_items = table_scan()
-    data_asin_codes = []
-    for data_item in data_items:
-        data_asin_codes.append(data_item['asin_code'])
+        data_items = table_scan()
+        data_asin_codes = []
+        for data_item in data_items:
+            data_asin_codes.append(data_item['asin_code'])
 
-    # 対象差集合
-    # dynamoDBには存在するがほしいものリスト内には存在しないasinコードを検索→ほしいものリストから削除された商品
-    deleted_saved_cart_asin_codes = set(data_asin_codes) ^ set(asin_codes)
+        # 対象差集合
+        # dynamoDBには存在するがほしいものリスト内には存在しないasinコードを検索→ほしいものリストから削除された商品
+        deleted_saved_cart_asin_codes = set(data_asin_codes) ^ set(asin_codes)
 
-    if len(deleted_saved_cart_asin_codes) != 0:
-        delete_recodes(deleted_saved_cart_asin_codes)
+        if len(deleted_saved_cart_asin_codes) != 0:
+            delete_recodes(deleted_saved_cart_asin_codes)
 
-    browser.quit()
+    except Exception as e:
+        print(e)
+        print("error occurred.")
+
+    finally:
+        browser.close()
