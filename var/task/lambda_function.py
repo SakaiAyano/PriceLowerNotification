@@ -1,7 +1,6 @@
 from selenium import webdriver
 from selenium.webdriver.chrome.options import Options
 from selenium.webdriver.common.keys import Keys
-import time
 import math
 import boto3
 import urllib3
@@ -9,6 +8,9 @@ import json
 import os
 from decimal import Decimal
 import re
+from selenium.webdriver.support.ui import WebDriverWait
+from selenium.webdriver.support import expected_conditions
+from selenium.webdriver.common.by import By
 
 dynamo_db = boto3.resource('dynamodb')
 wish_list_table = dynamo_db.Table('wish_list_item')
@@ -87,24 +89,28 @@ def lambda_handler(event, context):
     options.binary_location = '/opt/headless/python/bin/headless-chromium'
     browser = webdriver.Chrome('/opt/headless/python/bin/chromedriver', options=options)
     browser.implicitly_wait(10)
+    wait = WebDriverWait(driver=browser, timeout=30)
     try:
         # 対象のほしいものリストへアクセス
         browser.get(wish_list_url)
-        time.sleep(1)
 
         asin_codes = []
         price_lower_items = []
 
         # 画面描画のため（「ほしいものリスト」全ての商品情報）を取得するため画面下までスクロール
-        #TODO:time.sleepの場合、待っている時間がもったいない＋全て値がとれるとは限らないため安定して稼働するために別の方法を考える必要あり
         html = browser.find_element_by_tag_name('html')
         html.send_keys(Keys.END)
-        time.sleep(5)
+        # 「リストの最後」の部分である要素を取得できるまで待機する
+        wait.until(expected_conditions.presence_of_element_located((By.ID, 'endOfListMarker')))
 
         list_items = browser.find_elements_by_css_selector('.a-spacing-none.g-item-sortable')
         for list_item in list_items:
             # TODO:Amazon側では価格情報を小数第一を含めて表示しているが、小数第一を切り捨て対応（小数第一が0以外の商品が存在する可能性もあり得る？）
-            price = math.floor(float(list_item.get_attribute('data-price')))
+            # 「この商品の再入荷予定は立っておりません。」の商品は、data-price="-Infinity"と表示されるためそういった商品はスキップする
+            pre_price = list_item.get_attribute('data-price')
+            if pre_price == '-Infinity':
+                continue
+            price = math.floor(float(pre_price))
             data_reposition_action_params = list_item.get_attribute('data-reposition-action-params')
             data_reposition_action_params_dict = json.loads(data_reposition_action_params)
             asin_code = (re.search(r'ASIN:(.*)\|', data_reposition_action_params_dict['itemExternalId'])).group(1)
